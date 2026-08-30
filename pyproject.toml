@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "technocore-cli"
+version = "0.1.0"
+description = "Linux CLI for Technocore (Flop Labs) agent identity — quirk-aware KV notes, signed presence beacon, contribution proofs."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "hermes-vhm" }]
+keywords = ["technocore", "flop", "airdrop", "did", "agents", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "cryptography>=43.0.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+tc = "tc:main"
+
+[tool.setuptools]
+py-modules = ["tc", "adapter"]

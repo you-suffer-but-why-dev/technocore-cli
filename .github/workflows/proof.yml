@@ -1,0 +1,58 @@
+# contribution-proof — TEMPLATE
+#
+# Build a signed contribution proof for YOUR node on every version tag.
+# This repo stores NO identity material, so nothing here is sensitive — you
+# provide your node's secrets as Actions secrets on YOUR fork:
+#
+#   TC_IDENTITY_PEM  : base64 of your node's identity.pem
+#   TC_PASSPHRASE    : your node's keystore passphrase
+#   TC_DID           : your node's did:key string
+#   TC_ARTIFACT_URL  : the artifact this proof binds, e.g. https://github.com/<owner>/<repo>
+#
+# The proof is bound to $GITHUB_SHA (the immutable tag commit) and written to
+# contribution-proof.json. Extend with twine if you also publish to PyPI.
+
+name: contribution-proof
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install --upgrade pip setuptools && pip install -e .
+
+      - name: Materialize node (from secrets, never committed)
+        env:
+          TC_IDENTITY_PEM: "${{ secrets.TC_IDENTITY_PEM }}"
+          TC_PASSPHRASE: "${{ secrets.TC_PASSPHRASE }}"
+          TC_DID: "${{ secrets.TC_DID }}"
+        run: |
+          mkdir -p /tmp/tcnode
+          printf '%s' "$TC_IDENTITY_PEM" | base64 -d > /tmp/tcnode/identity.pem
+          chmod 600 /tmp/tcnode/identity.pem
+          python -c "import json,os;json.dump({'did':os.environ['TC_DID'],'passphrase':os.environ['TC_PASSPHRASE']},open('/tmp/tcnode/keystore.json','w'));import os;os.chmod('/tmp/tcnode/keystore.json',0o600)"
+
+      - name: Create + verify proof
+        env:
+          TC_ARTIFACT_URL: "${{ secrets.TC_ARTIFACT_URL }}"
+        run: tc --dir /tmp/tcnode proof "$TC_ARTIFACT_URL" "$GITHUB_SHA" -o contribution-proof.json
+
+      - name: Commit proof
+        run: |
+          git config user.name "hermes-vhm"
+          git config user.email "hermes@localhost"
+          git add contribution-proof.json
+          git commit -m "proof: bind contribution to ${GITHUB_REF#refs/tags/}" || echo "no change"
+          git push

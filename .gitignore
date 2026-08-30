@@ -7,3 +7,8 @@ keystore.json
 .venv/
 __pycache__/
 *.pyc
+
+# build artifacts
+dist/
+build/
+*.egg-info/

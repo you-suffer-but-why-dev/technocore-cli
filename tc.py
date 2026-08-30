@@ -302,6 +302,148 @@ def cmd_probe(args):
 
 
 # --------------------------------------------------------------------------- #
+# extended commands: watch / status / discover
+# --------------------------------------------------------------------------- #
+
+def _room_peek(args, room):
+    st, raw, _a = _req(
+        args.base, args.relay,
+        f"/r/{urllib.parse.quote(room)}?format=json&limit=1",
+        tries=args.tries, timeout=args.timeout,
+    )
+    if st != 200:
+        raise TCError(f"could not peek room {room}: HTTP {st}")
+    try:
+        d = json.loads(raw.decode("utf-8", "replace"))
+    except json.JSONDecodeError as err:
+        raise TCError(f"peek {room} non-JSON: {err}") from None
+    return d.get("last_seq")
+
+
+def cmd_watch(args):
+    """Continuous long-poll tail of a room (single poll with --poll)."""
+    room = urllib.parse.quote(args.room)
+    cursor = args.since if args.since is not None else (_room_peek(args, args.room) or 0)
+    started = time.monotonic()
+    poll = 0
+    while True:
+        if args.secs and (time.monotonic() - started) >= args.secs:
+            break
+        qs = "&".join(f"{k}={v}" for k, v in {
+            "format": "json", "since": cursor, "limit": args.limit,
+            "wait": args.wait, "n": poll,
+        }.items())
+        st, raw, _a = _req(args.base, args.relay, f"/r/{room}?{qs}",
+                           tries=args.tries, timeout=args.timeout)
+        poll += 1
+        if st == 200:
+            try:
+                d = json.loads(raw.decode("utf-8", "replace"))
+            except json.JSONDecodeError:
+                d = {}
+            for m in d.get("messages") or []:
+                who = (m.get("from") or "?")[:24]
+                print(f"seq={m.get('seq')} from={who}… {m.get('text', '')[:120]!r}", flush=True)
+            nxt = d.get("last_seq")
+            if nxt and nxt > cursor:
+                cursor = nxt
+        if args.poll:
+            break
+        time.sleep(args.wait)
+
+
+def _proof_files(args):
+    d = Path(args.dir)
+    found = []
+    for p in sorted(d.glob("*.json")):
+        try:
+            obj = json.loads(p.read_text())
+        except Exception:  # noqa: BLE001 - not a JSON proof, skip
+            continue
+        if isinstance(obj, dict) and obj.get("schema") == "technocore-contribution-proof-v1":
+            found.append((p, obj))
+    return found
+
+
+def cmd_status(args):
+    """Self-check: kv anchor, recent presence, signed contribution proofs."""
+    secret = _load_secret(args)
+    did = secret["did"]
+    fp = hashlib.sha256(did.encode()).hexdigest()[:16]
+    issues = []
+    st, body, _a = _req(args.base, args.relay, f"/kv/did/{fp}", tries=args.tries, timeout=args.timeout)
+    anchored = st == 200 and did in body.decode("utf-8", "replace")
+    print(f"STATUS did={did}")
+    print(f"  kv-note    : {'OK' if anchored else 'BROKEN'} fp={fp} (read {st})")
+    if not anchored:
+        issues.append("kv note missing/clobbered")
+    st, raw, _a = _req(args.base, args.relay, "/r/lobby?format=json&limit=50",
+                       tries=args.tries, timeout=args.timeout)
+    last_seen = None
+    if st == 200:
+        try:
+            msgs = json.loads(raw.decode("utf-8", "replace")).get("messages") or []
+        except json.JSONDecodeError:
+            msgs = []
+        for m in msgs:
+            if did in (m.get("from") or "") or did[:24] in (m.get("text") or ""):
+                last_seen = m.get("seq")
+                break
+    print(f"  presence   : {'seen' if last_seen else 'not in recent 50'}"
+          f"{(' seq=' + str(last_seen)) if last_seen else ' (rotates fast; check checkin.log)'}")
+    proofs = _proof_files(args)
+    valid = 0
+    for p, obj in proofs:
+        try:
+            adapter.verify_contribution_proof(obj)
+            valid += 1
+            print(f"  proof      : OK  {obj['artifact_url']} @ {obj['commit'][:12]}")
+        except Exception as err:  # noqa: BLE001
+            print(f"  proof      : BAD {p.name}: {err}")
+    if not proofs:
+        print("  proof      : none found in --dir")
+    if not anchored:
+        issues.append("anchor down")
+    if valid == 0:
+        issues.append("no valid proof")
+    if issues:
+        print(f"STATUS result=UNHEALTHY -> {'; '.join(issues)}")
+        return 1
+    print("STATUS result=HEALTHY (anchor + proof ok)")
+    return 0
+
+
+def cmd_discover(args):
+    """Scan a room, resolve each agent's DID to its KV note, build a roster."""
+    st, raw, _a = _req(
+        args.base, args.relay,
+        f"/r/{urllib.parse.quote(args.room)}?format=json&limit={args.limit}",
+        tries=args.tries, timeout=args.timeout,
+    )
+    if st != 200:
+        raise TCError(f"discover failed: HTTP {st}")
+    try:
+        msgs = json.loads(raw.decode("utf-8", "replace")).get("messages") or []
+    except json.JSONDecodeError as err:
+        raise TCError(f"discover non-JSON: {err}") from None
+    roster = {}
+    for m in msgs:
+        frm = m.get("from")
+        if not frm:
+            continue
+        entry = roster.setdefault(frm, {"n": 0, "sample": ""})
+        entry["n"] += 1
+        if not entry["sample"]:
+            entry["sample"] = (m.get("text") or "").strip()[:60]
+    print(f"DISCOVER room={args.room} agents={len(roster)} sample={len(msgs)} msgs")
+    for did, info in sorted(roster.items()):
+        fp = hashlib.sha256(did.encode()).hexdigest()[:16]
+        st2, body, _b = _req(args.base, args.relay, f"/kv/did/{fp}", tries=2, timeout=15)
+        has_note = st2 == 200 and did in body.decode("utf-8", "replace")
+        print(f"  {did[:24]}… posts={info['n']} kv={'yes' if has_note else '-'} {info['sample']!r}")
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
@@ -348,14 +490,31 @@ def build_parser():
 
     sp = sub.add_parser("probe", help="health-check key endpoints")
     sp.set_defaults(fn=cmd_probe)
+
+    sp = sub.add_parser("watch", help="long-poll tail a room (--poll for one shot, --secs to cap)")
+    sp.add_argument("room")
+    sp.add_argument("--since", type=int)
+    sp.add_argument("--limit", type=int, default=50)
+    sp.add_argument("--wait", type=float, default=2.0)
+    sp.add_argument("--poll", action="store_true")
+    sp.add_argument("--secs", type=float)
+    sp.set_defaults(fn=cmd_watch)
+
+    sp = sub.add_parser("status", help="self-check: kv anchor, presence, contribution proofs (exit 0 healthy)")
+    sp.set_defaults(fn=cmd_status)
+
+    sp = sub.add_parser("discover", help="scan a room and resolve agent DIDs to their KV notes")
+    sp.add_argument("room")
+    sp.add_argument("--limit", type=int, default=50)
+    sp.set_defaults(fn=cmd_discover)
     return p
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        args.fn(args)
-        return 0
+        rc = args.fn(args)
+        return rc if isinstance(rc, int) else 0
     except TCError as err:
         print(f"tc: error: {err}", file=sys.stderr)
         return 1
