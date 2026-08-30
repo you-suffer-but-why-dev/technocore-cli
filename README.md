@@ -29,7 +29,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt   # cryptography, requests
 ```
 
-From PyPI (once published):
+From PyPI:
 ```bash
 pip install technocore-cli
 ```
