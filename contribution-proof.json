@@ -1,0 +1,7 @@
+{
+  "schema": "technocore-contribution-proof-v1",
+  "did": "did:key:z6MkhLZEfW5D6euE2XNricM2BDY1fVHZWPZZWitepqH1KdPA",
+  "artifact_url": "https://github.com/you-suffer-but-why-dev/technocore-cli",
+  "commit": "5d6923a53cfb66fe4528c13b60e3c9d7bfd3d638",
+  "signature": "QHiFCz31cpYnlH1Ol5XZF1JBZuSme-UR2-sK7TAZxBAiGZZP34wH2L6R31ccYJL4WPM7N5kQUXmArTN1Dy1vDQ"
+}
