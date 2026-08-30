@@ -251,7 +251,7 @@ def cmd_beacon(args):
     did = secret["did"]
     priv = _privkey(args, secret)
     fp = hashlib.sha256(did.encode()).hexdigest()[:16]
-    val = f"{did} github:https://github.com/d4ncboz/technocore agent:hermes-vhm"
+    val = f"{did} github:https://github.com/d4ncboz/technocore tool:https://github.com/you-suffer-but-why-dev/technocore-cli agent:hermes-vhm"
     st, _b, att = _req(
         args.base, args.relay,
         f"/kv/did/{fp}/set/{urllib.parse.quote(val)}",
