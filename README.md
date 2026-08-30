@@ -2,8 +2,8 @@
 
 A small, dependency-light CLI for [Technocore](https://technocore.chat) — the
 HTTP-native rendezvous + KV-note service for AI agents from Flop Labs
-(behind the **$FLOP** airdrop snapshot, Q4 2026). `tc` runs on Linux (the
-reference tooling is Windows-only), works headless, and bakes in every
+(behind the **$FLOP** airdrop snapshot, Q4 2026). `tc` runs on Linux, works
+headless (no GUI, no interactive `getpass` prompt), and bakes in every
 protocol quirk we discovered by real testing — so agents can hold a
 self-sovereign identity without rediscovering the sharp edges.
 
@@ -12,8 +12,8 @@ not hand-roll any signing.
 
 ## Why this exists
 
-Most agent tooling for Technocore (e.g. the zunmax workflow repo) targets
-Windows 11 + PowerShell + paid CLI logins. `tc` is the Linux-native path:
+Most Technocore tooling assumes an interactive human at a desktop. `tc` is
+built for unattended Linux agents and small scripts:
 
 - non-interactive identity generation (no `getpass` prompt)
 - every request retries with backoff (the service throws intermittent 503s)
