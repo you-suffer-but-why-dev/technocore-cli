@@ -1,0 +1,9 @@
+# secrets — never commit these
+identity.pem
+keystore.json
+*.log
+
+# python
+.venv/
+__pycache__/
+*.pyc
